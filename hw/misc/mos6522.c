@@ -91,39 +91,28 @@ static void set_counter(MOS6522State *s, MOS6522Timer *ti, unsigned int val)
 static int64_t get_next_irq_time(MOS6522State *s, MOS6522Timer *ti,
                                  int64_t this_irq_time)
 {
-    int64_t d, next_time;
-    unsigned int counter;
+    int64_t d, next_d;
 
     if (ti->frequency == 0) {
         return INT64_MAX;
     }
 
-    /* current counter value */
+    /* number of counter cycles since load */
     d = muldiv64(this_irq_time - ti->load_time,
                  ti->frequency, NANOSECONDS_PER_SECOND);
 
     /* the timer goes down from latch to -1 (period of latch + 2) */
     if (d <= (ti->counter_value + 1)) {
-        counter = ti->counter_value - d;
+        next_d = ti->counter_value + 2;
     } else {
         int64_t d_post_reload = d - (ti->counter_value + 2);
         /* XXX this calculation assumes that ti->latch has not changed */
-        counter = ti->latch - (d_post_reload % (ti->latch + 2));
+        next_d = d - d_post_reload % (ti->latch + 2) + ti->latch + 2;
     }
-    counter &= 0xffff;
 
-    /* Note: we consider the irq is raised on 0 */
-    if (counter == 0xffff) {
-        next_time = d + ti->latch + 1;
-    } else if (counter == 0) {
-        next_time = d + ti->latch + 2;
-    } else {
-        next_time = d + counter;
-    }
-    trace_mos6522_get_next_irq_time(ti->latch, d, next_time - d);
-    next_time = muldiv64(next_time, NANOSECONDS_PER_SECOND, ti->frequency) +
-                         ti->load_time;
-    return next_time;
+    trace_mos6522_get_next_irq_time(ti->latch, d, next_d - d);
+    return ti->load_time +
+           muldiv64(next_d, NANOSECONDS_PER_SECOND, ti->frequency);
 }
 
 static void mos6522_timer1_update(MOS6522State *s, MOS6522Timer *ti,
